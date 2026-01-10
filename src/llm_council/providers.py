@@ -140,4 +140,154 @@ PRESETS = {
         "provider_type": "litellm",
         "model": "gpt-4o-mini",
     },
+    "anthropic": {
+        "provider_type": "litellm",
+        "model": "claude-3-opus-20240229",
+    },
+    "ollama": {
+        "provider_type": "litellm",
+        "api_base": "http://localhost:11434",
+    },
 }
+
+
+class ProviderRegistry:
+    """Registry for managing multiple LLM providers.
+
+    Supports per-persona provider resolution with config inheritance.
+    """
+
+    def __init__(self, resolved_config=None):
+        """Initialize registry with optional resolved configuration.
+
+        Args:
+            resolved_config: ResolvedConfig from ConfigManager.resolve()
+        """
+        self._providers: dict[str, LLMProvider] = {}
+        self._config = resolved_config
+        self._default_provider: Optional[LLMProvider] = None
+
+    def register(self, name: str, provider: LLMProvider):
+        """Register a named provider."""
+        self._providers[name] = provider
+
+    def get(self, name: str) -> Optional[LLMProvider]:
+        """Get a provider by name."""
+        return self._providers.get(name)
+
+    def get_or_create(self, name: str) -> LLMProvider:
+        """Get existing provider or create from config."""
+        if name in self._providers:
+            return self._providers[name]
+
+        if self._config is None:
+            raise ValueError(f"Provider '{name}' not found and no config available")
+
+        # Check named providers in config
+        if name in self._config.providers:
+            settings = self._config.defaults.merge_with(self._config.providers[name])
+        elif name == 'default':
+            settings = self._config.defaults
+        else:
+            raise ValueError(f"Provider '{name}' not found in config")
+
+        provider = create_provider(
+            model=settings.model or "openai/qwen/qwen3-coder-30b",
+            api_base=settings.api_base,
+            api_key=settings.api_key,
+            temperature=settings.temperature or 0.7,
+            max_tokens=settings.max_tokens or 1024,
+        )
+        self._providers[name] = provider
+        return provider
+
+    def get_for_persona(self, persona_name: str) -> LLMProvider:
+        """Get provider for a specific persona.
+
+        Uses merge inheritance: defaults -> named provider -> persona overrides.
+        """
+        if self._config is None:
+            if self._default_provider:
+                return self._default_provider
+            raise ValueError("No config or default provider available")
+
+        # Check cache first
+        cache_key = f"persona:{persona_name}"
+        if cache_key in self._providers:
+            return self._providers[cache_key]
+
+        # Get merged settings for persona
+        from .config import ConfigManager
+        manager = ConfigManager()
+        settings = manager.get_provider_for_persona(persona_name, self._config)
+
+        # Create provider
+        provider = create_provider(
+            model=settings.model or self._config.defaults.model or "openai/qwen/qwen3-coder-30b",
+            api_base=settings.api_base or self._config.defaults.api_base,
+            api_key=settings.api_key or self._config.defaults.api_key,
+            temperature=settings.temperature or self._config.defaults.temperature or 0.7,
+            max_tokens=settings.max_tokens or self._config.defaults.max_tokens or 1024,
+        )
+
+        self._providers[cache_key] = provider
+        return provider
+
+    def set_default(self, provider: LLMProvider):
+        """Set the default provider."""
+        self._default_provider = provider
+        self._providers['default'] = provider
+
+    def get_default(self) -> LLMProvider:
+        """Get the default provider."""
+        if self._default_provider:
+            return self._default_provider
+        return self.get_or_create('default')
+
+    def validate_all(self) -> dict[str, bool]:
+        """Validate all configured providers.
+
+        Returns dict of provider_name -> is_valid.
+        """
+        results = {}
+
+        # Validate default
+        try:
+            default = self.get_default()
+            results['default'] = default.test_connection()
+        except Exception:
+            results['default'] = False
+
+        # Validate named providers
+        if self._config:
+            for name in self._config.providers:
+                try:
+                    provider = self.get_or_create(name)
+                    results[name] = provider.test_connection()
+                except Exception:
+                    results[name] = False
+
+        return results
+
+    def list_providers(self) -> list[str]:
+        """List all available provider names."""
+        names = set(self._providers.keys())
+        if self._config:
+            names.update(self._config.providers.keys())
+        names.add('default')
+        return sorted(names)
+
+
+def create_provider_from_settings(settings) -> LLMProvider:
+    """Create provider from ProviderSettings object.
+
+    Args:
+        settings: ProviderSettings from config module
+    """
+    return create_provider(
+        model=settings.model or "openai/qwen/qwen3-coder-30b",
+        api_base=settings.api_base,
+        api_key=settings.api_key,
+        temperature=settings.temperature or 0.7,
+        max_tokens=settings.max_tokens or 1024,
+    )

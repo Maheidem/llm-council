@@ -4,6 +4,7 @@ __version__ = "0.1.0"
 
 from .models import (
     Persona,
+    PersonaProviderConfig,
     Message,
     Vote,
     RoundResult,
@@ -90,13 +91,29 @@ from .schemas import (
     validate_session_output,
     SchemaValidator,
 )
-from .providers import create_provider, LiteLLMProvider, ProviderConfig
+from .providers import create_provider, LiteLLMProvider, ProviderConfig, ProviderRegistry
 from .personas import PersonaManager
 from .council import CouncilEngine
+from .config import (
+    ConfigManager,
+    ConfigSchema,
+    ProviderSettings,
+    GenerationSettings,
+    CouncilSettings,
+    PersistenceSettings,
+    ResolvedConfig,
+    get_config_manager,
+    load_config,
+    save_config,
+    get_default_config,
+    get_user_config_path,
+    get_project_config_path,
+)
 
 __all__ = [
     # Models
     "Persona",
+    "PersonaProviderConfig",
     "Message",
     "Vote",
     "RoundResult",
@@ -184,8 +201,23 @@ __all__ = [
     "create_provider",
     "LiteLLMProvider",
     "ProviderConfig",
+    "ProviderRegistry",
     # Personas
     "PersonaManager",
     # Council
     "CouncilEngine",
+    # Config (US-CONFIG)
+    "ConfigManager",
+    "ConfigSchema",
+    "ProviderSettings",
+    "GenerationSettings",
+    "CouncilSettings",
+    "PersistenceSettings",
+    "ResolvedConfig",
+    "get_config_manager",
+    "load_config",
+    "save_config",
+    "get_default_config",
+    "get_user_config_path",
+    "get_project_config_path",
 ]

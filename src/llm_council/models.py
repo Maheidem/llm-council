@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Optional, Dict, Any
 
 
 class ConsensusType(Enum):
@@ -21,6 +21,55 @@ class VoteChoice(Enum):
 
 
 @dataclass
+class PersonaProviderConfig:
+    """Provider configuration specific to a persona.
+
+    All fields are optional - unset fields inherit from global defaults.
+    """
+    model: Optional[str] = None
+    provider: Optional[str] = None  # Named provider reference
+    api_base: Optional[str] = None
+    api_key: Optional[str] = None
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    max_tokens: Optional[int] = None
+    context_size: Optional[int] = None
+    response_size: Optional[int] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary, excluding None values."""
+        return {k: v for k, v in {
+            "model": self.model,
+            "provider": self.provider,
+            "api_base": self.api_base,
+            "api_key": self.api_key,
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "top_k": self.top_k,
+            "max_tokens": self.max_tokens,
+            "context_size": self.context_size,
+            "response_size": self.response_size,
+        }.items() if v is not None}
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'PersonaProviderConfig':
+        """Create from dictionary."""
+        return cls(
+            model=data.get("model"),
+            provider=data.get("provider"),
+            api_base=data.get("api_base"),
+            api_key=data.get("api_key"),
+            temperature=data.get("temperature"),
+            top_p=data.get("top_p"),
+            top_k=data.get("top_k"),
+            max_tokens=data.get("max_tokens"),
+            context_size=data.get("context_size"),
+            response_size=data.get("response_size"),
+        )
+
+
+@dataclass
 class Persona:
     """Represents an AI persona in the council."""
     name: str
@@ -28,6 +77,7 @@ class Persona:
     expertise: list[str]
     personality_traits: list[str]
     perspective: str  # General viewpoint/bias this persona brings
+    provider_config: Optional[PersonaProviderConfig] = None  # Per-persona provider settings
 
     def to_system_prompt(self) -> str:
         """Generate system prompt for this persona."""
@@ -40,6 +90,17 @@ Your personality traits: {traits}
 Your perspective: {self.perspective}
 
 You are participating in a council discussion. Stay in character and provide insights based on your unique perspective and expertise. Be constructive but also challenge ideas when appropriate based on your role."""
+
+    def with_provider_config(self, config: PersonaProviderConfig) -> 'Persona':
+        """Return a new Persona with the given provider config."""
+        return Persona(
+            name=self.name,
+            role=self.role,
+            expertise=self.expertise,
+            personality_traits=self.personality_traits,
+            perspective=self.perspective,
+            provider_config=config,
+        )
 
 
 @dataclass

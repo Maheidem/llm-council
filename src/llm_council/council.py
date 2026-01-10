@@ -1,7 +1,7 @@
 """Core council discussion engine."""
 
 import json
-from typing import Optional
+from typing import Optional, Union
 
 from .models import (
     Persona,
@@ -12,7 +12,7 @@ from .models import (
     CouncilSession,
     ConsensusType,
 )
-from .providers import LLMProvider
+from .providers import LLMProvider, ProviderRegistry, create_provider
 
 
 class CouncilEngine:
@@ -20,7 +20,8 @@ class CouncilEngine:
 
     def __init__(
         self,
-        provider: LLMProvider,
+        provider: Optional[LLMProvider] = None,
+        provider_registry: Optional[ProviderRegistry] = None,
         consensus_type: ConsensusType = ConsensusType.MAJORITY,
         max_rounds: int = 5,
         stalemate_threshold: int = 2,
@@ -28,15 +29,62 @@ class CouncilEngine:
         """Initialize the council engine.
 
         Args:
-            provider: LLM provider for generating responses
+            provider: Single LLM provider for all responses (legacy mode)
+            provider_registry: Registry for per-persona provider resolution
             consensus_type: Type of consensus required
             max_rounds: Maximum discussion rounds before forcing vote
             stalemate_threshold: Rounds without progress before calling stalemate
+
+        Note: Either provider or provider_registry must be provided.
+              If both are provided, provider_registry takes precedence for persona lookups,
+              but the single provider is used as fallback.
         """
         self.provider = provider
+        self.provider_registry = provider_registry
         self.consensus_type = consensus_type
         self.max_rounds = max_rounds
         self.stalemate_threshold = stalemate_threshold
+
+        # Set up registry with default provider if only provider is given
+        if provider and not provider_registry:
+            self.provider_registry = ProviderRegistry()
+            self.provider_registry.set_default(provider)
+
+    def _get_provider_for_persona(self, persona: Persona) -> LLMProvider:
+        """Get the appropriate provider for a persona.
+
+        Resolution order:
+        1. Persona's provider_config (if set)
+        2. Provider registry lookup by persona name
+        3. Default provider
+        """
+        # If persona has explicit provider_config, create provider from it
+        if persona.provider_config:
+            cfg = persona.provider_config
+            return create_provider(
+                model=cfg.model or (self.provider.config.model if self.provider else "openai/qwen/qwen3-coder-30b"),
+                api_base=cfg.api_base or (self.provider.config.api_base if self.provider else None),
+                api_key=cfg.api_key or (self.provider.config.api_key if self.provider else None),
+                temperature=cfg.temperature or 0.7,
+                max_tokens=cfg.max_tokens or cfg.response_size or 1024,
+            )
+
+        # Try registry lookup
+        if self.provider_registry:
+            try:
+                return self.provider_registry.get_for_persona(persona.name)
+            except (ValueError, KeyError):
+                pass  # Fall through to default
+
+        # Fall back to single provider
+        if self.provider:
+            return self.provider
+
+        # Last resort: get default from registry
+        if self.provider_registry:
+            return self.provider_registry.get_default()
+
+        raise ValueError("No provider available for council engine")
 
     def run_session(
         self,
@@ -158,7 +206,9 @@ class CouncilEngine:
                 other_messages=messages,  # Messages from this round
             )
 
-            response = self.provider.complete(
+            # Get per-persona provider
+            persona_provider = self._get_provider_for_persona(persona)
+            response = persona_provider.complete(
                 system_prompt=persona.to_system_prompt(),
                 user_prompt=user_prompt,
             )
@@ -264,7 +314,12 @@ Discussion:
 Has consensus been reached?"""
 
         try:
-            response = self.provider.complete(system_prompt, user_prompt)
+            # Use default provider for moderation tasks
+            moderator_provider = self.provider or (self.provider_registry.get_default() if self.provider_registry else None)
+            if not moderator_provider:
+                return {"reached": False, "summary": "No provider available"}
+
+            response = moderator_provider.complete(system_prompt, user_prompt)
             # Parse JSON from response
             response = response.strip()
             if response.startswith("```"):
@@ -345,7 +400,12 @@ Discussion:
 
 Synthesize a clear proposal for the group to vote on:"""
 
-        response = self.provider.complete(system_prompt, user_prompt)
+        # Use default provider for moderation tasks
+        moderator_provider = self.provider or (self.provider_registry.get_default() if self.provider_registry else None)
+        if not moderator_provider:
+            return "No consensus proposal available"
+
+        response = moderator_provider.complete(system_prompt, user_prompt)
         return response.strip()
 
     def _get_vote(
@@ -371,7 +431,9 @@ Format:
 VOTE: [AGREE/DISAGREE/ABSTAIN]
 REASON: [Your reasoning]"""
 
-        response = self.provider.complete(
+        # Get per-persona provider
+        persona_provider = self._get_provider_for_persona(persona)
+        response = persona_provider.complete(
             system_prompt=persona.to_system_prompt(),
             user_prompt=user_prompt,
         )
