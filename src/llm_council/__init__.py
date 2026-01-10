@@ -27,6 +27,15 @@ from .contracts import (
     get_error_handler,
     get_interface_version,
 )
+from .templates import (
+    PersonaTemplate,
+    PersonaTemplateLibrary,
+    TemplateLoader,
+    get_template_library,
+    create_persona_from_template,
+    list_builtin_templates,
+    get_builtin_template,
+)
 from .schemas import (
     DiscussionRequestSchema,
     PersonaTemplateSchema,
@@ -82,6 +91,14 @@ __all__ = [
     "get_contract_registry",
     "get_error_handler",
     "get_interface_version",
+    # Templates (US-04)
+    "PersonaTemplate",
+    "PersonaTemplateLibrary",
+    "TemplateLoader",
+    "get_template_library",
+    "create_persona_from_template",
+    "list_builtin_templates",
+    "get_builtin_template",
     # Providers
     "create_provider",
     "LiteLLMProvider",
