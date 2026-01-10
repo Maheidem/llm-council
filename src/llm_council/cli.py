@@ -33,8 +33,8 @@ def main():
 @click.option("--context", "-c", help="Additional context for the discussion")
 @click.option(
     "--model", "-m",
-    default="openai/qwen3-coder-30b",
-    help="Model to use (default: openai/qwen3-coder-30b for LM Studio)"
+    default="openai/qwen/qwen3-coder-30b",
+    help="Model to use (default: openai/qwen/qwen3-coder-30b for LM Studio)"
 )
 @click.option(
     "--api-base", "-b",
@@ -100,7 +100,7 @@ def discuss(
     # Apply preset if specified
     if preset:
         preset_config = PRESETS[preset]
-        if "model" in preset_config and model == "openai/qwen3-coder-30b":
+        if "model" in preset_config and model == "openai/qwen/qwen3-coder-30b":
             model = preset_config["model"]
         if "api_base" in preset_config:
             api_base = preset_config["api_base"]
@@ -223,7 +223,7 @@ def _print_session_results(session, quiet: bool):
     default="http://localhost:1234/v1",
     help="API base URL to test"
 )
-@click.option("--model", "-m", default="openai/qwen3-coder-30b", help="Model to test")
+@click.option("--model", "-m", default="openai/qwen/qwen3-coder-30b", help="Model to test")
 @click.option("--api-key", "-k", help="API key if required")
 def test_connection(api_base: str, model: str, api_key: Optional[str]):
     """Test connection to LLM provider."""
@@ -275,7 +275,7 @@ def run_config(config_file: str):
         "topic": "Discussion topic",
         "objective": "Goal to achieve",
         "context": "Optional context",
-        "model": "openai/qwen3-coder-30b",
+        "model": "openai/qwen/qwen3-coder-30b",
         "api_base": "http://localhost:1234/v1",
         "personas": 3,
         "auto_personas": false,
@@ -302,7 +302,7 @@ def run_config(config_file: str):
         topic=topic,
         objective=objective,
         context=config.get("context"),
-        model=config.get("model", "openai/qwen3-coder-30b"),
+        model=config.get("model", "openai/qwen/qwen3-coder-30b"),
         api_base=config.get("api_base", "http://localhost:1234/v1"),
         api_key=config.get("api_key"),
         preset=config.get("preset"),

@@ -1,11 +1,15 @@
 """LLM Provider implementations using LiteLLM."""
 
 import os
+import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
 
 import litellm
+
+# Suppress Pydantic serialization warnings from LiteLLM
+warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
 
 
 @dataclass
@@ -87,7 +91,7 @@ class LiteLLMProvider(LLMProvider):
 
 def create_provider(
     provider_type: str = "litellm",
-    model: str = "openai/qwen3-coder-30b",
+    model: str = "openai/qwen/qwen3-coder-30b",
     api_base: Optional[str] = None,
     api_key: Optional[str] = None,
     temperature: float = 0.7,
