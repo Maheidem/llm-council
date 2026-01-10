@@ -64,6 +64,20 @@ from .metrics import (
     record_session_metrics,
     get_metrics_summary,
 )
+from .testing import (
+    TestStatus,
+    TestCase,
+    TestResult,
+    VarianceMetric,
+    TestSuite,
+    TestExecutor,
+    VarianceTracker,
+    TestReporter,
+    create_test_suite,
+    create_provider as create_test_provider,
+    create_test_case,
+    get_standard_test_suite,
+)
 from .schemas import (
     DiscussionRequestSchema,
     PersonaTemplateSchema,
@@ -153,6 +167,19 @@ __all__ = [
     "record_tokens",
     "record_session_metrics",
     "get_metrics_summary",
+    # Testing (US-07)
+    "TestStatus",
+    "TestCase",
+    "TestResult",
+    "VarianceMetric",
+    "TestSuite",
+    "TestExecutor",
+    "VarianceTracker",
+    "TestReporter",
+    "create_test_suite",
+    "create_test_provider",
+    "create_test_case",
+    "get_standard_test_suite",
     # Providers
     "create_provider",
     "LiteLLMProvider",
