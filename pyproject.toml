@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 authors = [
     {name = "mahei"}
 ]
-keywords = ["llm", "consensus", "council", "ai", "deliberation"]
+keywords = ["llm", "consensus", "council", "ai", "deliberation", "mcp"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -30,6 +30,7 @@ dependencies = [
     "click>=8.0.0",
     "rich>=13.0.0",
     "pyyaml>=6.0.0",
+    "mcp>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -38,9 +39,16 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
 ]
+mcp = [
+    "mcp>=1.0.0",
+]
 
 [project.scripts]
 llm-council = "llm_council.cli:main"
+llm-council-mcp = "llm_council.mcp_server:main"
+
+[project.entry-points."mcp.servers"]
+llm-council = "llm_council.mcp_server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -48,3 +56,15 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+# UV/UVX configuration
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+]
+
+# Allow running as MCP server via uvx
+[tool.uv.scripts]
+mcp = "llm_council.mcp_server:main"

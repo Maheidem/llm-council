@@ -1,0 +1,37 @@
+# LLM Council Docker Compose Configuration
+#
+# Usage:
+#   docker-compose up -d          # Start MCP server
+#   docker-compose logs -f        # View logs
+#   docker-compose down           # Stop
+#
+# For Claude Desktop, use the stdio transport:
+#   docker-compose run --rm llm-council-mcp
+
+version: '3.8'
+
+services:
+  llm-council-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: llm-council-mcp
+    stdin_open: true
+    tty: true
+    environment:
+      # Pass through environment variables for API keys
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - LLM_COUNCIL_MODEL=${LLM_COUNCIL_MODEL:-}
+      - LLM_COUNCIL_API_BASE=${LLM_COUNCIL_API_BASE:-}
+      - LLM_COUNCIL_API_KEY=${LLM_COUNCIL_API_KEY:-}
+    volumes:
+      # Mount config directory for persistence
+      - llm-council-config:/home/council/.config/llm-council
+    # For local LLM access (e.g., LM Studio running on host)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  llm-council-config:
