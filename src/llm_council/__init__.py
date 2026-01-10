@@ -12,6 +12,18 @@ from .models import (
     VoteChoice,
 )
 from .assertions import assert_council, CouncilAssertions, AssertionReport, ValidationResult
+from .schemas import (
+    DiscussionRequestSchema,
+    PersonaTemplateSchema,
+    SessionOutputSchema,
+    SchemaValidationError,
+    ValidationErrors,
+    ValidationErrorCode,
+    validate_discussion_request,
+    validate_persona_template,
+    validate_session_output,
+    SchemaValidator,
+)
 from .providers import create_provider, LiteLLMProvider, ProviderConfig
 from .personas import PersonaManager
 from .council import CouncilEngine
@@ -30,6 +42,17 @@ __all__ = [
     "CouncilAssertions",
     "AssertionReport",
     "ValidationResult",
+    # Schemas (US-02)
+    "DiscussionRequestSchema",
+    "PersonaTemplateSchema",
+    "SessionOutputSchema",
+    "SchemaValidationError",
+    "ValidationErrors",
+    "ValidationErrorCode",
+    "validate_discussion_request",
+    "validate_persona_template",
+    "validate_session_output",
+    "SchemaValidator",
     # Providers
     "create_provider",
     "LiteLLMProvider",
