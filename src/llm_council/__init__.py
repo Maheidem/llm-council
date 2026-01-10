@@ -36,6 +36,17 @@ from .templates import (
     list_builtin_templates,
     get_builtin_template,
 )
+from .persistence import (
+    RetentionPolicy,
+    StoredSession,
+    SessionStorage,
+    SQLiteStorage,
+    SessionExporter,
+    SessionManager,
+    get_session_manager,
+    save_session,
+    load_session,
+)
 from .schemas import (
     DiscussionRequestSchema,
     PersonaTemplateSchema,
@@ -99,6 +110,16 @@ __all__ = [
     "create_persona_from_template",
     "list_builtin_templates",
     "get_builtin_template",
+    # Persistence (US-05)
+    "RetentionPolicy",
+    "StoredSession",
+    "SessionStorage",
+    "SQLiteStorage",
+    "SessionExporter",
+    "SessionManager",
+    "get_session_manager",
+    "save_session",
+    "load_session",
     # Providers
     "create_provider",
     "LiteLLMProvider",
