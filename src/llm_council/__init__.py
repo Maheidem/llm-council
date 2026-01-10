@@ -12,6 +12,21 @@ from .models import (
     VoteChoice,
 )
 from .assertions import assert_council, CouncilAssertions, AssertionReport, ValidationResult
+from .contracts import (
+    INTERFACE_VERSION,
+    ErrorCode,
+    ErrorSeverity,
+    InterfaceError,
+    InterfaceContract,
+    ContractRegistry,
+    ErrorHandler,
+    FailureRecovery,
+    RecoveryAction,
+    RecoveryResult,
+    get_contract_registry,
+    get_error_handler,
+    get_interface_version,
+)
 from .schemas import (
     DiscussionRequestSchema,
     PersonaTemplateSchema,
@@ -53,6 +68,20 @@ __all__ = [
     "validate_persona_template",
     "validate_session_output",
     "SchemaValidator",
+    # Contracts (US-03)
+    "INTERFACE_VERSION",
+    "ErrorCode",
+    "ErrorSeverity",
+    "InterfaceError",
+    "InterfaceContract",
+    "ContractRegistry",
+    "ErrorHandler",
+    "FailureRecovery",
+    "RecoveryAction",
+    "RecoveryResult",
+    "get_contract_registry",
+    "get_error_handler",
+    "get_interface_version",
     # Providers
     "create_provider",
     "LiteLLMProvider",
