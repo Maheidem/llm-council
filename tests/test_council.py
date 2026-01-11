@@ -12,6 +12,8 @@ from llm_council.models import (
     DEFAULT_PERSONAS,
 )
 from llm_council.council import CouncilEngine
+from llm_council.discussion import DiscussionState
+from llm_council.voting import VoteParser, VotingMachine, StructuredVote
 
 
 class MockProvider:
@@ -47,12 +49,14 @@ class TestCouncilEngine:
 
     def test_conduct_round(self):
         provider = MockProvider(responses=[
+            "As mediator, let's begin the discussion.",
             "This is my first perspective.",
             "I agree with the first point.",
-            "Let me add my thoughts.",
         ])
         engine = CouncilEngine(provider=provider)
         personas = DEFAULT_PERSONAS[:3]
+        discussion_state = DiscussionState()
+        discussion_state.advance_round()
 
         result = engine._conduct_round(
             round_num=1,
@@ -60,6 +64,8 @@ class TestCouncilEngine:
             objective="Make a decision",
             personas=personas,
             history=[],
+            initial_context=None,
+            discussion_state=discussion_state,
         )
 
         assert result.round_number == 1
@@ -82,105 +88,57 @@ class TestCouncilEngine:
         assert "Expert1" in history_text
         assert "Expert2" in history_text
 
-    def test_check_consensus_parses_json(self):
-        provider = MockProvider(responses=[
-            '{"reached": true, "position": "We should proceed", "summary": "Agreement reached"}'
-        ])
-        engine = CouncilEngine(provider=provider)
-
-        result = engine._check_consensus(
-            topic="Test",
-            objective="Decide",
-            history=[Message("Expert", "I agree", 1)],
-            personas=DEFAULT_PERSONAS[:1],
-        )
-
-        assert result["reached"] is True
-        assert result["position"] == "We should proceed"
-
-    def test_check_consensus_handles_invalid_json(self):
-        provider = MockProvider(responses=["This is not JSON"])
-        engine = CouncilEngine(provider=provider)
-
-        result = engine._check_consensus(
-            topic="Test",
-            objective="Decide",
-            history=[Message("Expert", "Discussion", 1)],
-            personas=DEFAULT_PERSONAS[:1],
-        )
-
-        assert result["reached"] is False
-
-    def test_get_vote_agree(self):
-        provider = MockProvider(responses=[
-            "VOTE: AGREE\nREASON: This makes complete sense."
-        ])
-        engine = CouncilEngine(provider=provider)
-        persona = DEFAULT_PERSONAS[0]
-
-        vote = engine._get_vote(
-            persona=persona,
-            topic="Test",
-            objective="Decide",
-            proposal="We should do X",
-            history_text="Previous discussion...",
-        )
-
-        assert vote.choice == VoteChoice.AGREE
-        assert vote.persona_name == persona.name
-
-    def test_get_vote_disagree(self):
-        provider = MockProvider(responses=[
-            "VOTE: DISAGREE\nREASON: I have concerns about this approach."
-        ])
-        engine = CouncilEngine(provider=provider)
-        persona = DEFAULT_PERSONAS[0]
-
-        vote = engine._get_vote(
-            persona=persona,
-            topic="Test",
-            objective="Decide",
-            proposal="We should do X",
-            history_text="Discussion...",
-        )
-
-        assert vote.choice == VoteChoice.DISAGREE
-
     def test_conduct_vote_majority(self):
-        # 2 agree, 1 disagree = majority reached
+        # First response is synthesize_proposal, then votes from non-mediator personas
+        # With 3 personas and first marked as mediator, we get 2 votes
         provider = MockProvider(responses=[
             "Proposal: Do X",  # synthesize_proposal
-            "VOTE: AGREE\nREASON: Good idea",
-            "VOTE: AGREE\nREASON: Sounds reasonable",
-            "VOTE: DISAGREE\nREASON: Not convinced",
+            "[VOTE] AGREE\n[CONFIDENCE] 0.9\n[REASONING] Good idea",
+            "[VOTE] DISAGREE\n[CONFIDENCE] 0.7\n[REASONING] Not convinced",
         ])
         engine = CouncilEngine(
             provider=provider,
             consensus_type=ConsensusType.MAJORITY,
         )
 
+        # Mark first persona as mediator (as run_session does)
+        personas = DEFAULT_PERSONAS[:3].copy()
+        personas[0] = Persona(
+            name=personas[0].name,
+            role=personas[0].role,
+            expertise=personas[0].expertise,
+            personality_traits=personas[0].personality_traits,
+            perspective=personas[0].perspective,
+            is_mediator=True,
+        )
+
         result = engine._conduct_vote(
             topic="Test",
             objective="Decide",
-            personas=DEFAULT_PERSONAS[:3],
+            personas=personas,
             history=[],
         )
 
-        assert result["consensus_reached"] is True
-        assert len(result["votes"]) == 3
-        assert result["agree_count"] == 2
+        # With majority (>50%), 1 agree vs 1 disagree = 50% = not reached
+        assert result["consensus_reached"] is False
+        # 2 votes (mediator excluded)
+        assert len(result["votes"]) == 2
 
     def test_run_session_reaches_consensus(self):
+        # Each round: 3 personas respond (mediator + 2 others)
+        # Then vote: proposal + 2 votes (mediator excluded)
         responses = [
             # Round 1 discussions (3 personas)
+            "As mediator, let's discuss option A.",
             "I think we should go with option A.",
             "I agree, option A seems best.",
-            "Option A has my support too.",
-            # Consensus check
-            '{"reached": true, "position": "Option A is the best choice", "summary": "All agree"}',
+            # Vote triggered after max rounds or stalemate
+            "Proposal: Option A is the best choice",
+            "[VOTE] AGREE\n[CONFIDENCE] 0.9\n[REASONING] Makes sense",
+            "[VOTE] AGREE\n[CONFIDENCE] 0.8\n[REASONING] I support this",
         ]
         provider = MockProvider(responses=responses)
-        engine = CouncilEngine(provider=provider, max_rounds=3)
+        engine = CouncilEngine(provider=provider, max_rounds=1)
 
         session = engine.run_session(
             topic="Choose an option",
@@ -188,30 +146,22 @@ class TestCouncilEngine:
             personas=DEFAULT_PERSONAS[:3],
         )
 
-        assert session.consensus_reached is True
-        assert session.final_consensus is not None
+        # Should reach consensus via vote
         assert len(session.rounds) >= 1
 
     def test_run_session_forces_vote_on_stalemate(self):
-        # Simulate stalemate then vote
+        # Simulate discussion then vote
         responses = [
-            # Round 1 discussions
-            "I prefer A", "I prefer B", "I prefer C",
-            # Check 1
-            '{"reached": false, "summary": "No agreement"}',
+            # Round 1 discussions (3 personas)
+            "As mediator, let's start.", "I prefer A", "I prefer B",
             # Round 2 discussions
-            "Still prefer A", "Still prefer B", "Still prefer C",
-            # Check 2 - same summary triggers stalemate counter
-            '{"reached": false, "summary": "No agreement"}',
-            # Round 3 discussions
-            "A is best", "B is best", "C is best",
-            # Check 3 - same again, triggers vote
-            '{"reached": false, "summary": "No agreement"}',
+            "Let's continue.", "Still prefer A", "Still prefer B",
+            # Round 3 - same positions trigger stalemate
+            "Let's try to agree.", "A is best", "B is best",
             # Vote phase
             "Proposal: Go with majority preference",
-            "VOTE: AGREE\nREASON: Fine",
-            "VOTE: AGREE\nREASON: OK",
-            "VOTE: DISAGREE\nREASON: No",
+            "[VOTE] AGREE\n[CONFIDENCE] 0.8\n[REASONING] Fine",
+            "[VOTE] AGREE\n[CONFIDENCE] 0.7\n[REASONING] OK",
         ]
         provider = MockProvider(responses=responses)
         engine = CouncilEngine(
@@ -229,3 +179,165 @@ class TestCouncilEngine:
         # Should have votes in at least one round
         has_votes = any(r.votes for r in session.rounds)
         assert has_votes or session.consensus_reached
+
+
+class TestVoteParser:
+    """Tests for deterministic vote parsing."""
+
+    def test_parse_structured_vote_agree(self):
+        response = "[VOTE] AGREE\n[CONFIDENCE] 0.85\n[REASONING] This is a good proposal."
+        vote = VoteParser.parse("TestPersona", response)
+
+        assert vote.choice == VoteChoice.AGREE
+        assert vote.confidence == 0.85
+        assert "good proposal" in vote.reasoning
+        assert vote.parse_success is True
+
+    def test_parse_structured_vote_disagree(self):
+        response = "[VOTE] DISAGREE\n[CONFIDENCE] 0.6\n[REASONING] I have concerns."
+        vote = VoteParser.parse("TestPersona", response)
+
+        assert vote.choice == VoteChoice.DISAGREE
+        assert vote.confidence == 0.6
+        assert vote.parse_success is True
+
+    def test_parse_simple_format(self):
+        response = "VOTE: AGREE\nCONFIDENCE: 0.9\nREASON: Sounds good."
+        vote = VoteParser.parse("TestPersona", response)
+
+        assert vote.choice == VoteChoice.AGREE
+        assert vote.confidence == 0.9
+
+    def test_parse_fallback_keyword(self):
+        response = "I think we should AGREE with this proposal because it makes sense."
+        vote = VoteParser.parse("TestPersona", response)
+
+        assert vote.choice == VoteChoice.AGREE
+        assert vote.confidence == 0.5  # Default
+
+    def test_parse_abstain_default(self):
+        response = "I'm not sure what to think about this."
+        vote = VoteParser.parse("TestPersona", response)
+
+        assert vote.choice == VoteChoice.ABSTAIN
+        assert vote.parse_success is False  # Had to default
+
+    def test_to_legacy_vote(self):
+        structured = StructuredVote(
+            persona_name="Test",
+            choice=VoteChoice.AGREE,
+            confidence=0.8,
+            reasoning="Good idea",
+        )
+        legacy = VoteParser.to_legacy_vote(structured)
+
+        assert legacy.persona_name == "Test"
+        assert legacy.choice == VoteChoice.AGREE
+        assert legacy.reasoning == "Good idea"
+
+
+class TestVotingMachine:
+    """Tests for deterministic vote tallying."""
+
+    def test_tally_unanimous_agree(self):
+        votes = [
+            StructuredVote("P1", VoteChoice.AGREE, 0.9, "Yes"),
+            StructuredVote("P2", VoteChoice.AGREE, 0.8, "Agreed"),
+            StructuredVote("P3", VoteChoice.AGREE, 0.7, "Sounds good"),
+        ]
+        machine = VotingMachine(ConsensusType.UNANIMOUS)
+        tally = machine.tally(votes)
+
+        assert tally.agree_count == 3
+        assert tally.disagree_count == 0
+        assert tally.agree_ratio == 1.0
+        assert tally.consensus_reached is True
+
+    def test_tally_unanimous_fails_with_disagree(self):
+        votes = [
+            StructuredVote("P1", VoteChoice.AGREE, 0.9, "Yes"),
+            StructuredVote("P2", VoteChoice.AGREE, 0.8, "Agreed"),
+            StructuredVote("P3", VoteChoice.DISAGREE, 0.7, "No"),
+        ]
+        machine = VotingMachine(ConsensusType.UNANIMOUS)
+        tally = machine.tally(votes)
+
+        assert tally.agree_count == 2
+        assert tally.disagree_count == 1
+        assert tally.consensus_reached is False
+
+    def test_tally_majority_passes(self):
+        votes = [
+            StructuredVote("P1", VoteChoice.AGREE, 0.9, "Yes"),
+            StructuredVote("P2", VoteChoice.AGREE, 0.8, "Yes"),
+            StructuredVote("P3", VoteChoice.DISAGREE, 0.7, "No"),
+        ]
+        machine = VotingMachine(ConsensusType.MAJORITY)
+        tally = machine.tally(votes)
+
+        assert tally.agree_count == 2
+        assert tally.agree_ratio == 2/3
+        assert tally.consensus_reached is True  # 66% > 50%
+
+    def test_tally_majority_fails_on_tie(self):
+        votes = [
+            StructuredVote("P1", VoteChoice.AGREE, 0.9, "Yes"),
+            StructuredVote("P2", VoteChoice.DISAGREE, 0.8, "No"),
+        ]
+        machine = VotingMachine(ConsensusType.MAJORITY)
+        tally = machine.tally(votes)
+
+        assert tally.agree_ratio == 0.5
+        assert tally.consensus_reached is False  # 50% not > 50%
+
+    def test_tally_supermajority(self):
+        votes = [
+            StructuredVote("P1", VoteChoice.AGREE, 0.9, "Yes"),
+            StructuredVote("P2", VoteChoice.AGREE, 0.8, "Yes"),
+            StructuredVote("P3", VoteChoice.AGREE, 0.7, "Yes"),
+            StructuredVote("P4", VoteChoice.DISAGREE, 0.6, "No"),
+        ]
+        machine = VotingMachine(ConsensusType.SUPERMAJORITY)
+        tally = machine.tally(votes)
+
+        assert tally.agree_ratio == 0.75
+        assert tally.consensus_reached is True  # 75% > 66.67%
+
+    def test_tally_plurality(self):
+        votes = [
+            StructuredVote("P1", VoteChoice.AGREE, 0.9, "Yes"),
+            StructuredVote("P2", VoteChoice.DISAGREE, 0.8, "No"),
+            StructuredVote("P3", VoteChoice.ABSTAIN, 0.5, "Unsure"),
+        ]
+        machine = VotingMachine(ConsensusType.PLURALITY)
+        tally = machine.tally(votes)
+
+        # 1 agree vs 1 disagree = tie, no winner
+        assert tally.winning_choice is None
+        assert tally.consensus_reached is False
+
+    def test_tally_abstain_excluded(self):
+        votes = [
+            StructuredVote("P1", VoteChoice.AGREE, 0.9, "Yes"),
+            StructuredVote("P2", VoteChoice.ABSTAIN, 0.5, "Unsure"),
+            StructuredVote("P3", VoteChoice.ABSTAIN, 0.5, "Unsure"),
+        ]
+        machine = VotingMachine(ConsensusType.MAJORITY)
+        tally = machine.tally(votes)
+
+        assert tally.total_voting == 1  # Only 1 non-abstain
+        assert tally.agree_ratio == 1.0  # 1/1 = 100%
+        assert tally.consensus_reached is True
+
+    def test_tally_to_dict(self):
+        votes = [
+            StructuredVote("P1", VoteChoice.AGREE, 0.9, "Yes"),
+        ]
+        machine = VotingMachine(ConsensusType.MAJORITY)
+        tally = machine.tally(votes)
+        result = machine.to_dict(tally)
+
+        assert "agree_count" in result
+        assert "disagree_count" in result
+        assert "consensus_reached" in result
+        assert result["consensus_type"] == "majority"

@@ -78,6 +78,7 @@ class Persona:
     personality_traits: list[str]
     perspective: str  # General viewpoint/bias this persona brings
     provider_config: Optional[PersonaProviderConfig] = None  # Per-persona provider settings
+    is_mediator: bool = False  # Whether this persona is the discussion mediator
 
     def to_system_prompt(self) -> str:
         """Generate system prompt for this persona."""
@@ -100,6 +101,7 @@ You are participating in a council discussion. Stay in character and provide ins
             personality_traits=self.personality_traits,
             perspective=self.perspective,
             provider_config=config,
+            is_mediator=self.is_mediator,
         )
 
 
@@ -109,7 +111,9 @@ class Message:
     persona_name: str
     content: str
     round_number: int
-    message_type: str = "discussion"  # discussion, vote, summary
+    message_type: str = "discussion"  # discussion, vote, summary, pass
+    is_pass: bool = False  # Whether persona passed this turn
+    is_mediator: bool = False  # Whether from mediator persona
 
 
 @dataclass
@@ -152,6 +156,7 @@ class CouncilSession:
                     "expertise": p.expertise,
                     "personality_traits": p.personality_traits,
                     "perspective": p.perspective,
+                    "is_mediator": p.is_mediator,
                 }
                 for p in self.personas
             ],
@@ -164,6 +169,8 @@ class CouncilSession:
                             "content": m.content,
                             "round_number": m.round_number,
                             "message_type": m.message_type,
+                            "is_pass": m.is_pass,
+                            "is_mediator": m.is_mediator,
                         }
                         for m in r.messages
                     ],
