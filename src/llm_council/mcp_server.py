@@ -131,7 +131,7 @@ async def list_tools():
         ),
         Tool(
             name="config_init",
-            description="Initialize LLM Council configuration interactively. Use this for first-time setup or to reconfigure. Returns a form structure the agent can use to gather required information from the user.",
+            description="Initialize LLM Council configuration with a 3-step guided setup. Use this for first-time setup or to reconfigure. Returns step-by-step form structures for: (1) Provider & model selection, (2) API key configuration with security guidance, (3) Connection validation before saving. Call without parameters to start the wizard, or with all parameters for quick setup.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -142,15 +142,20 @@ async def list_tools():
                     },
                     "model": {
                         "type": "string",
-                        "description": "Model name/identifier to use"
+                        "description": "Model name/identifier to use. For OpenAI: gpt-4o, gpt-4o-mini, gpt-4-turbo. For Anthropic: anthropic/claude-sonnet-4-20250514, anthropic/claude-opus-4-20250514, anthropic/claude-3-5-haiku-20241022."
                     },
                     "api_base": {
                         "type": "string",
-                        "description": "API base URL (required for local/custom)"
+                        "description": "API base URL (required for local/custom). LM Studio: http://localhost:1234/v1, Ollama: http://localhost:11434/v1"
                     },
                     "api_key": {
                         "type": "string",
-                        "description": "API key (use ${ENV_VAR} syntax for security)"
+                        "description": "API key (use ${ENV_VAR} syntax for security, e.g., ${OPENAI_API_KEY})"
+                    },
+                    "skip_validation": {
+                        "type": "boolean",
+                        "description": "Skip connection validation before saving (not recommended). Default: false.",
+                        "default": False
                     }
                 }
             }
@@ -381,100 +386,417 @@ async def handle_config_set(args: dict) -> list[TextContent]:
 
 
 async def handle_config_init(args: dict) -> list[TextContent]:
-    """Initialize configuration - onboarding flow."""
+    """Initialize configuration - 3-step onboarding flow.
+
+    Steps:
+    1. Provider & Model Selection - Choose provider preset and model
+    2. API Key Entry - Configure API key with guidance (cloud providers only)
+    3. Connection Validation - Test connection before saving
+
+    Backward compatible: config_init(preset="local") with all required params
+    still works for quick setup.
+    """
     preset = args.get("preset")
     model = args.get("model")
     api_base = args.get("api_base")
     api_key = args.get("api_key")
+    skip_validation = args.get("skip_validation", False)
 
-    # If no preset provided, return the setup form/guidance
+    # Model options per provider
+    MODEL_OPTIONS = {
+        "openai": [
+            {"value": "gpt-4o", "label": "GPT-4o", "description": "Most capable model, best for complex discussions", "recommended": True},
+            {"value": "gpt-4o-mini", "label": "GPT-4o Mini", "description": "Faster and cheaper, good for most use cases"},
+            {"value": "gpt-4-turbo", "label": "GPT-4 Turbo", "description": "Previous generation, still very capable"},
+            {"value": "custom", "label": "Other model", "description": "Enter a custom model name"},
+        ],
+        "anthropic": [
+            {"value": "anthropic/claude-sonnet-4-20250514", "label": "Claude Sonnet 4", "description": "Latest balanced model, best for most tasks", "recommended": True},
+            {"value": "anthropic/claude-opus-4-20250514", "label": "Claude Opus 4", "description": "Most capable, best for complex discussions"},
+            {"value": "anthropic/claude-3-5-haiku-20241022", "label": "Claude 3.5 Haiku", "description": "Fastest and most affordable"},
+            {"value": "custom", "label": "Other model", "description": "Enter a custom model name"},
+        ],
+    }
+
+    # API key URLs per provider
+    API_KEY_URLS = {
+        "openai": "https://platform.openai.com/api-keys",
+        "anthropic": "https://console.anthropic.com/settings/keys",
+    }
+
+    # ========================================================================
+    # STEP 1: Provider Selection (no preset provided)
+    # ========================================================================
     if not preset:
         return [TextContent(type="text", text=json.dumps({
-            "action": "onboarding_required",
-            "message": "LLM Council configuration setup. Please help the user choose a configuration.",
+            "step": "provider_select",
+            "step_number": 1,
+            "total_steps": 3,
+            "message": "Welcome to LLM Council setup! Let's configure your LLM provider.",
             "questions": [
                 {
                     "id": "preset",
+                    "type": "select",
                     "question": "Which LLM provider would you like to use?",
                     "options": [
-                        {"value": "local", "label": "Local (LM Studio, Ollama, etc.)", "description": "Run models locally via OpenAI-compatible API"},
-                        {"value": "openai", "label": "OpenAI", "description": "Use OpenAI's API (requires API key)"},
-                        {"value": "anthropic", "label": "Anthropic Claude", "description": "Use Anthropic's Claude API (requires API key)"},
-                        {"value": "custom", "label": "Custom Provider", "description": "Configure a custom OpenAI-compatible endpoint"},
-                    ]
+                        {
+                            "value": "local",
+                            "label": "Local Server",
+                            "description": "LM Studio, Ollama, or other local LLM server",
+                            "requires_api_key": False,
+                        },
+                        {
+                            "value": "openai",
+                            "label": "OpenAI",
+                            "description": "GPT-4o, GPT-4o-mini, and other OpenAI models",
+                            "requires_api_key": True,
+                            "api_key_url": API_KEY_URLS["openai"],
+                        },
+                        {
+                            "value": "anthropic",
+                            "label": "Anthropic Claude",
+                            "description": "Claude Opus, Sonnet, and Haiku models",
+                            "requires_api_key": True,
+                            "api_key_url": API_KEY_URLS["anthropic"],
+                        },
+                        {
+                            "value": "custom",
+                            "label": "Custom Endpoint",
+                            "description": "Any OpenAI-compatible API endpoint",
+                            "requires_api_key": "optional",
+                        },
+                    ],
                 }
             ],
-            "next_step": "After user selects preset, call config_init with preset parameter to get next questions."
+            "next_action": "Call config_init(preset='<selected>') to continue",
         }, indent=2))]
 
-    # Generate config based on preset
-    presets = {
+    # Validate preset
+    valid_presets = ["local", "openai", "anthropic", "custom"]
+    if preset not in valid_presets:
+        return [TextContent(type="text", text=json.dumps({
+            "error": f"Unknown preset: {preset}",
+            "valid_presets": valid_presets,
+            "troubleshooting": [
+                "Check the preset value is one of: local, openai, anthropic, custom",
+                "Call config_init() without parameters to see all options",
+            ],
+        }, indent=2))]
+
+    # ========================================================================
+    # STEP 1b: Model Selection (preset provided, but no model)
+    # ========================================================================
+
+    # For local/custom without model, ask for model and api_base
+    if preset == "local" and not model:
+        return [TextContent(type="text", text=json.dumps({
+            "step": "model_select",
+            "step_number": 1,
+            "total_steps": 3,
+            "preset": preset,
+            "message": "Configure your local LLM server.",
+            "questions": [
+                {
+                    "id": "api_base",
+                    "type": "text",
+                    "question": "What is your local server URL?",
+                    "default": "http://localhost:1234/v1",
+                    "hint": "LM Studio default: http://localhost:1234/v1, Ollama: http://localhost:11434/v1",
+                },
+                {
+                    "id": "model",
+                    "type": "text",
+                    "question": "What model are you running?",
+                    "default": "openai/qwen/qwen3-coder-30b",
+                    "hint": "Use 'openai/' prefix for OpenAI-compatible endpoints",
+                },
+            ],
+            "next_action": "Call config_init(preset='local', api_base='...', model='...') to continue",
+        }, indent=2))]
+
+    if preset == "custom" and (not model or not api_base):
+        return [TextContent(type="text", text=json.dumps({
+            "step": "model_select",
+            "step_number": 1,
+            "total_steps": 3,
+            "preset": preset,
+            "message": "Configure your custom LLM endpoint.",
+            "questions": [
+                {
+                    "id": "api_base",
+                    "type": "text",
+                    "question": "What is your API endpoint URL?",
+                    "required": True,
+                    "hint": "e.g., https://api.example.com/v1",
+                },
+                {
+                    "id": "model",
+                    "type": "text",
+                    "question": "What is the model identifier?",
+                    "required": True,
+                    "hint": "e.g., openai/gpt-4o or custom-model-name",
+                },
+            ],
+            "next_action": "Call config_init(preset='custom', api_base='...', model='...') to continue",
+        }, indent=2))]
+
+    # For cloud providers without model, show model selection
+    if preset in ["openai", "anthropic"] and not model:
+        return [TextContent(type="text", text=json.dumps({
+            "step": "model_select",
+            "step_number": 1,
+            "total_steps": 3,
+            "preset": preset,
+            "message": f"Select which {preset.title()} model you'd like to use.",
+            "questions": [
+                {
+                    "id": "model",
+                    "type": "select",
+                    "question": "Select model:",
+                    "options": MODEL_OPTIONS[preset],
+                    "allow_custom": True,
+                    "custom_hint": "Enter model name (e.g., gpt-4o-2024-11-20)" if preset == "openai" else "Enter model name (e.g., anthropic/claude-3-5-sonnet-20241022)",
+                }
+            ],
+            "next_action": f"Call config_init(preset='{preset}', model='<selected>') to continue",
+        }, indent=2))]
+
+    # Handle "custom" model selection - user needs to provide actual model name
+    if model == "custom":
+        return [TextContent(type="text", text=json.dumps({
+            "step": "model_select",
+            "step_number": 1,
+            "total_steps": 3,
+            "preset": preset,
+            "message": "Enter your custom model name.",
+            "questions": [
+                {
+                    "id": "model",
+                    "type": "text",
+                    "question": "What is the model identifier?",
+                    "required": True,
+                    "hint": "e.g., gpt-4o-2024-11-20 or anthropic/claude-3-5-sonnet-20241022",
+                }
+            ],
+            "next_action": f"Call config_init(preset='{preset}', model='<actual_model_name>') to continue",
+        }, indent=2))]
+
+    # ========================================================================
+    # STEP 2: API Key Entry (cloud providers only, when no api_key provided)
+    # ========================================================================
+
+    # Determine default API base and key for each preset
+    preset_defaults = {
         "local": {
-            "model": model or "openai/qwen/qwen3-coder-30b",
             "api_base": api_base or "http://localhost:1234/v1",
             "api_key": api_key or "lm-studio",
-            "questions_if_missing": [
-                {"id": "api_base", "question": "What is your local LLM server URL?", "default": "http://localhost:1234/v1"},
-                {"id": "model", "question": "Which model are you using?", "default": "openai/qwen/qwen3-coder-30b"},
-            ]
+            "requires_api_key": False,
         },
         "openai": {
-            "model": model or "gpt-4o",
             "api_base": api_base or "https://api.openai.com/v1",
-            "api_key": api_key or "${OPENAI_API_KEY}",
-            "questions_if_missing": [
-                {"id": "api_key", "question": "What is your OpenAI API key? (Use ${OPENAI_API_KEY} for env var)", "sensitive": True},
-                {"id": "model", "question": "Which model do you want to use?", "default": "gpt-4o"},
-            ]
+            "api_key": api_key,  # No default - must be provided
+            "requires_api_key": True,
         },
         "anthropic": {
-            "model": model or "anthropic/claude-3-5-sonnet-20241022",
             "api_base": api_base or "https://api.anthropic.com",
-            "api_key": api_key or "${ANTHROPIC_API_KEY}",
-            "questions_if_missing": [
-                {"id": "api_key", "question": "What is your Anthropic API key? (Use ${ANTHROPIC_API_KEY} for env var)", "sensitive": True},
-                {"id": "model", "question": "Which model do you want to use?", "default": "anthropic/claude-3-5-sonnet-20241022"},
-            ]
+            "api_key": api_key,  # No default - must be provided
+            "requires_api_key": True,
         },
         "custom": {
-            "model": model,
             "api_base": api_base,
             "api_key": api_key,
-            "questions_if_missing": [
-                {"id": "api_base", "question": "What is your API endpoint URL?", "required": True},
-                {"id": "model", "question": "What is the model identifier?", "required": True},
-                {"id": "api_key", "question": "What is your API key? (Use ${ENV_VAR} syntax for security)", "sensitive": True},
-            ]
-        }
+            "requires_api_key": False,  # Optional for custom
+        },
     }
 
-    preset_config = presets.get(preset)
-    if not preset_config:
-        return [TextContent(type="text", text=f"Unknown preset: {preset}")]
+    defaults = preset_defaults.get(preset, {})
 
-    # Check if we have all required info
-    missing_questions = []
-    for q in preset_config.get("questions_if_missing", []):
-        field_id = q["id"]
-        if not args.get(field_id) and not preset_config.get(field_id):
-            if q.get("required", False) or preset == "custom":
-                missing_questions.append(q)
-
-    if missing_questions and preset == "custom":
+    # For cloud providers, require API key
+    if preset in ["openai", "anthropic"] and not api_key:
+        env_var_name = "OPENAI_API_KEY" if preset == "openai" else "ANTHROPIC_API_KEY"
         return [TextContent(type="text", text=json.dumps({
-            "action": "need_more_info",
+            "step": "api_key_setup",
+            "step_number": 2,
+            "total_steps": 3,
             "preset": preset,
-            "questions": missing_questions,
-            "message": "Please gather the following information from the user:"
+            "model": model,
+            "message": f"{preset.title()} requires an API key. How would you like to configure it?",
+            "questions": [
+                {
+                    "id": "api_key",
+                    "type": "select_or_input",
+                    "question": "Configure API key:",
+                    "options": [
+                        {
+                            "value": f"${{{env_var_name}}}",
+                            "label": "Use environment variable (recommended)",
+                            "description": f"References {env_var_name} environment variable",
+                            "recommended": True,
+                            "setup_instructions": {
+                                "windows_powershell": f'$env:{env_var_name} = "your-api-key-here"  # Temporary',
+                                "windows_permanent": f'[System.Environment]::SetEnvironmentVariable("{env_var_name}", "your-api-key-here", "User")',
+                                "unix": f'export {env_var_name}="your-api-key-here"  # Add to ~/.bashrc for permanent',
+                            },
+                        },
+                        {
+                            "value": "paste",
+                            "label": "Enter API key directly",
+                            "description": "Key will be stored in config file",
+                            "warning": "Less secure - key stored in plaintext in config file",
+                        },
+                    ],
+                    "api_key_url": API_KEY_URLS[preset],
+                    "api_key_hint": f"Get your API key at {API_KEY_URLS[preset]}",
+                }
+            ],
+            "security_warning": "For production use, we strongly recommend using environment variables instead of storing API keys in config files.",
+            "next_action": f"Call config_init(preset='{preset}', model='{model}', api_key='...') to continue",
         }, indent=2))]
 
-    # Create and save configuration
+    # ========================================================================
+    # STEP 3: Connection Validation & Save
+    # ========================================================================
+
+    # Build final configuration
+    final_model = model
+    final_api_base = defaults.get("api_base")
+    final_api_key = defaults.get("api_key") or api_key
+
+    # For local preset, apply defaults if not specified
+    if preset == "local":
+        final_model = model or "openai/qwen/qwen3-coder-30b"
+        final_api_base = api_base or "http://localhost:1234/v1"
+        final_api_key = api_key or "lm-studio"
+
+    # Validate we have all required fields
+    if not final_model:
+        return [TextContent(type="text", text=json.dumps({
+            "error": "Model is required but not provided",
+            "troubleshooting": [
+                "Call config_init() to restart the setup wizard",
+                f"Or specify model directly: config_init(preset='{preset}', model='your-model')",
+            ],
+        }, indent=2))]
+
+    if not final_api_base and preset != "custom":
+        return [TextContent(type="text", text=json.dumps({
+            "error": "API base URL is required but not provided",
+            "troubleshooting": [
+                "Call config_init() to restart the setup wizard",
+                f"Or specify api_base directly: config_init(preset='{preset}', api_base='your-url')",
+            ],
+        }, indent=2))]
+
+    # Connection validation (unless skipped)
+    validation_result = None
+    if not skip_validation:
+        try:
+            # Resolve env vars for validation
+            resolved_api_key = final_api_key
+            if final_api_key and final_api_key.startswith("${") and final_api_key.endswith("}"):
+                env_var = final_api_key[2:-1]
+                resolved_api_key = os.environ.get(env_var)
+                if not resolved_api_key:
+                    # Env var not set - warn but allow saving
+                    validation_result = {
+                        "status": "warning",
+                        "message": f"Environment variable {env_var} is not set. Configuration will be saved but connection cannot be tested.",
+                        "troubleshooting": [
+                            f"Set the environment variable: {env_var}",
+                            "Windows PowerShell: $env:" + env_var + ' = "your-key"',
+                            "Unix/Mac: export " + env_var + '="your-key"',
+                            "Then restart your terminal/IDE",
+                        ],
+                    }
+
+            if validation_result is None:
+                # Actually test the connection
+                provider = create_provider(
+                    model=final_model,
+                    api_base=final_api_base,
+                    api_key=resolved_api_key,
+                )
+
+                import time
+                start_time = time.time()
+                is_valid = provider.test_connection()
+                response_time_ms = int((time.time() - start_time) * 1000)
+
+                if is_valid:
+                    validation_result = {
+                        "status": "success",
+                        "message": "Connection successful! Your configuration is working.",
+                        "response_time_ms": response_time_ms,
+                    }
+                else:
+                    validation_result = {
+                        "status": "failed",
+                        "message": "Connection test failed.",
+                        "troubleshooting": _get_troubleshooting_tips(preset, final_api_base, final_api_key),
+                    }
+
+                    # Return validation failure with retry options
+                    return [TextContent(type="text", text=json.dumps({
+                        "step": "validate",
+                        "step_number": 3,
+                        "total_steps": 3,
+                        "validation_status": "failed",
+                        "message": "Connection failed. Please check your configuration.",
+                        "error": validation_result,
+                        "retry_options": [
+                            {
+                                "action": "Change API key",
+                                "call": f"config_init(preset='{preset}', model='{final_model}', api_key='<new_key>')",
+                            },
+                            {
+                                "action": "Change provider",
+                                "call": "config_init()",
+                            },
+                            {
+                                "action": "Skip validation and save anyway",
+                                "call": f"config_init(preset='{preset}', model='{final_model}', api_key='{final_api_key}', skip_validation=True)",
+                                "warning": "Not recommended - config may not work",
+                            },
+                        ],
+                    }, indent=2))]
+
+        except Exception as e:
+            error_str = str(e)
+            validation_result = {
+                "status": "failed",
+                "message": f"Connection test error: {error_str}",
+                "troubleshooting": _get_troubleshooting_tips(preset, final_api_base, final_api_key, error_str),
+            }
+
+            return [TextContent(type="text", text=json.dumps({
+                "step": "validate",
+                "step_number": 3,
+                "total_steps": 3,
+                "validation_status": "failed",
+                "message": "Connection test encountered an error.",
+                "error": validation_result,
+                "retry_options": [
+                    {
+                        "action": "Check your settings and try again",
+                        "call": f"config_init(preset='{preset}', model='{final_model}', api_key='...')",
+                    },
+                    {
+                        "action": "Skip validation and save anyway",
+                        "call": f"config_init(preset='{preset}', model='{final_model}', api_key='{final_api_key}', skip_validation=True)",
+                        "warning": "Not recommended - config may not work",
+                    },
+                ],
+            }, indent=2))]
+
+    # ========================================================================
+    # Save Configuration
+    # ========================================================================
     try:
         config = ConfigSchema(
             defaults=ProviderSettings(
-                model=preset_config["model"],
-                api_base=preset_config["api_base"],
-                api_key=preset_config["api_key"],
+                model=final_model,
+                api_base=final_api_base,
+                api_key=final_api_key,
                 temperature=0.7,
                 max_tokens=1024,
             )
@@ -483,16 +805,112 @@ async def handle_config_init(args: dict) -> list[TextContent]:
         config_path = get_user_config_path()
         save_config(config, config_path)
 
-        return [TextContent(type="text", text=json.dumps({
+        # Build success response
+        response = {
+            "step": "complete",
+            "step_number": 3,
+            "total_steps": 3,
             "success": True,
-            "message": f"Configuration initialized with '{preset}' preset",
+            "message": f"Configuration saved successfully with '{preset}' preset!",
             "config_path": str(config_path),
-            "config": config.model_dump(exclude_none=True),
-            "next_step": "You can now use council_discuss to run discussions, or use config_validate to test the connection."
-        }, indent=2))]
+            "summary": {
+                "provider": preset.title() if preset != "custom" else "Custom",
+                "model": final_model,
+                "api_base": final_api_base,
+                "api_key": _mask_api_key(final_api_key),
+            },
+        }
+
+        if validation_result:
+            response["validation"] = validation_result
+
+        response["next_steps"] = [
+            {
+                "action": "Run a test discussion",
+                "example": "council_discuss(topic='Test Topic', objective='Verify setup works')",
+            },
+            {
+                "action": "Validate configuration",
+                "example": "config_validate()",
+            },
+            {
+                "action": "View full configuration",
+                "example": "config_get(resolved=True)",
+            },
+        ]
+
+        # For backward compatibility, also include the config dump
+        response["config"] = config.model_dump(exclude_none=True)
+        response["next_step"] = "You can now use council_discuss to run discussions, or use config_validate to test the connection."
+
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
 
     except Exception as e:
-        return [TextContent(type="text", text=f"Error initializing config: {str(e)}")]
+        return [TextContent(type="text", text=json.dumps({
+            "error": f"Error saving configuration: {str(e)}",
+            "troubleshooting": [
+                "Check write permissions to config directory",
+                f"Config path: {get_user_config_path()}",
+                "Try running with elevated permissions if needed",
+            ],
+        }, indent=2))]
+
+
+def _get_troubleshooting_tips(preset: str, api_base: Optional[str], api_key: Optional[str], error: Optional[str] = None) -> list[str]:
+    """Generate troubleshooting tips based on preset and error."""
+    tips = []
+
+    if preset == "local":
+        tips.extend([
+            f"Ensure your local LLM server is running at {api_base}",
+            "Check if the server supports OpenAI-compatible API",
+            "Try accessing the /models endpoint in a browser",
+            "For LM Studio: Enable 'Start Server' in the Local Server tab",
+            "For Ollama: Ensure it's running with 'ollama serve'",
+        ])
+    elif preset == "openai":
+        tips.extend([
+            "Verify your API key is correct (starts with 'sk-')",
+            "Check if the API key has been revoked or expired",
+            "Ensure you have billing set up at platform.openai.com",
+            "If using env var, restart your terminal after setting it",
+        ])
+    elif preset == "anthropic":
+        tips.extend([
+            "Verify your API key is correct",
+            "Check if the API key has been revoked or expired",
+            "Ensure you have an active account at console.anthropic.com",
+            "If using env var, restart your terminal after setting it",
+        ])
+    else:
+        tips.extend([
+            f"Check if the API endpoint is accessible: {api_base}",
+            "Verify the API key is correct",
+            "Ensure the model name is valid for your provider",
+        ])
+
+    if error:
+        if "timeout" in error.lower():
+            tips.insert(0, "Connection timed out - check if the server is running and accessible")
+        elif "401" in error or "unauthorized" in error.lower():
+            tips.insert(0, "Authentication failed - check your API key")
+        elif "404" in error:
+            tips.insert(0, "Endpoint not found - verify the API base URL")
+        elif "connection refused" in error.lower():
+            tips.insert(0, "Connection refused - ensure the server is running")
+
+    return tips
+
+
+def _mask_api_key(api_key: Optional[str]) -> str:
+    """Mask API key for display, keeping env var references visible."""
+    if not api_key:
+        return "(not set)"
+    if api_key.startswith("${") and api_key.endswith("}"):
+        return f"{api_key} (from environment)"
+    if len(api_key) > 8:
+        return f"{api_key[:4]}...{api_key[-4:]}"
+    return "****"
 
 
 async def handle_config_validate(args: dict) -> list[TextContent]:
