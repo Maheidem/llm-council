@@ -13,19 +13,88 @@ A CLI tool for LLM-based council/consensus decision making where multiple AI per
 
 ## Installation
 
+### Quick Start with UVX (Recommended)
+
+Run directly without installation:
+
 ```bash
-# Clone the repository
-git clone <repo-url>
-cd llm-council
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# or: venv\Scripts\activate  # Windows
-
-# Install the package
-pip install -e ".[dev]"
+uvx llm-council-mcp
 ```
+
+### Install as Tool
+
+```bash
+# Install UV first (if not already installed)
+# Linux/Mac:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows (PowerShell):
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Install llm-council-mcp as a tool
+uv tool install llm-council-mcp
+```
+
+### Traditional pip Install
+
+```bash
+pip install llm-council-mcp
+```
+
+## Claude Code MCP Integration
+
+Add llm-council as an MCP server in your Claude Code configuration:
+
+```json
+{
+  "mcpServers": {
+    "llm-council": {
+      "command": "uvx",
+      "args": ["llm-council-mcp"]
+    }
+  }
+}
+```
+
+Or if installed as a tool:
+
+```json
+{
+  "mcpServers": {
+    "llm-council": {
+      "command": "llm-council-mcp"
+    }
+  }
+}
+```
+
+With environment variables for API keys:
+
+```json
+{
+  "mcpServers": {
+    "llm-council": {
+      "command": "uvx",
+      "args": ["llm-council-mcp"],
+      "env": {
+        "OPENAI_API_KEY": "your-key-here"
+      }
+    }
+  }
+}
+```
+
+### Available MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `council_discuss` | Run a council discussion with multiple AI personas to reach consensus |
+| `config_init` | Initialize configuration with 3-step guided setup wizard |
+| `config_get` | Get current configuration values |
+| `config_set` | Set configuration values |
+| `config_validate` | Validate provider connections |
+| `providers_list` | List all configured LLM providers |
+| `personas_generate` | Generate custom personas for a specific topic |
 
 ## Quick Start
 
@@ -165,14 +234,31 @@ print(f"Final position: {session.final_consensus}")
 ## Development
 
 ```bash
-# Install dev dependencies
-pip install -e ".[dev]"
+# Clone the repository
+git clone https://github.com/Maheidem/llm-council.git
+cd llm-council
+
+# Install dependencies with UV
+uv sync --dev
 
 # Run tests
-pytest tests/ -v
+uv run pytest tests/ -v
 
 # Run tests with coverage
-pytest tests/ --cov=llm_council
+uv run pytest tests/ --cov=llm_council
+
+# Run the CLI during development
+uv run llm-council --help
+
+# Run the MCP server during development
+uv run llm-council-mcp
+```
+
+Alternative with pip:
+
+```bash
+pip install -e ".[dev]"
+pytest tests/ -v
 ```
 
 ## License
