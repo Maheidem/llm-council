@@ -1108,12 +1108,21 @@ async def handle_personas_generate(args: dict) -> list[TextContent]:
         return [TextContent(type="text", text=f"Error generating personas: {str(e)}")]
 
 
-async def main():
-    """Run the MCP server."""
+async def _run_server():
+    """Run the MCP server (async implementation)."""
     async with stdio_server() as (read_stream, write_stream):
         await server.run(read_stream, write_stream, server.create_initialization_options())
 
 
-if __name__ == "__main__":
+def main():
+    """Entry point for the MCP server.
+
+    Note: Entry points must be synchronous functions.
+    This wraps the async server with asyncio.run().
+    """
     import asyncio
-    asyncio.run(main())
+    asyncio.run(_run_server())
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,51 @@
+{
+  "Tests": [
+    {
+      "StartTime": "2026-01-10 12:09:38",
+      "Duration": 27.04,
+      "Status": "PASS",
+      "ModelType": "local",
+      "FinalConsensus": "**Proposal: ColorChoice - Risk-Adjusted Implementation Framework**\n\nRather than choosing between red or blue based on theoretical frameworks, we will:\n\n1. **Conduct a controlled A/B test** comparing b",
+      "Model": "LMStudio-Qwen3",
+      "ConsensusReached": true,
+      "RoundsCompleted": 2,
+      "Error": null,
+      "TestName": "SimpleDecision_LMStudio-Qwen3",
+      "Scenario": "SimpleDecision",
+      "EndTime": "2026-01-10 12:10:05"
+    },
+    {
+      "StartTime": "2026-01-10 12:10:05",
+      "Duration": 26.02,
+      "Status": "PASS",
+      "ModelType": "local",
+      "FinalConsensus": "**Proposal: Framework Selection for New Project Development**\n\n**Primary Recommendation:** Choose **React** for new project development due to its proven scalability, extensive ecosystem maturity, and",
+      "Model": "LMStudio-Qwen3",
+      "ConsensusReached": true,
+      "RoundsCompleted": 2,
+      "Error": null,
+      "TestName": "TechnicalChoice_LMStudio-Qwen3",
+      "Scenario": "TechnicalChoice",
+      "EndTime": "2026-01-10 12:10:31"
+    },
+    {
+      "StartTime": "2026-01-10 12:10:31",
+      "Duration": 25.02,
+      "Status": "PASS",
+      "ModelType": "local",
+      "FinalConsensus": "**Proposal: Adopt a Phased Architectural Approach with Clear Decision Metrics**\n\nStart with a well-structured monolithic architecture designed with modular boundaries and interface-based dependencies.",
+      "Model": "LMStudio-Qwen3",
+      "ConsensusReached": true,
+      "RoundsCompleted": 2,
+      "Error": null,
+      "TestName": "ArchitectureDebate_LMStudio-Qwen3",
+      "Scenario": "ArchitectureDebate",
+      "EndTime": "2026-01-10 12:10:56"
+    }
+  ],
+  "TotalTests": 3,
+  "Failed": 0,
+  "Passed": 3,
+  "Skipped": 0,
+  "TestRun": "2026-01-10 12:09:35"
+}
