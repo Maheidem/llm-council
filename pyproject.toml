@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm-council-mcp"
-version = "0.1.1"
+version = "0.1.2"
 description = "LLM-based council/consensus tool for multi-persona AI deliberation"
 readme = "README.md"
 license = {text = "MIT"}
@@ -56,15 +56,14 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "api: marks tests that require LM Studio API (deselect with '-m \"not api\"')",
+]
 
-# UV/UVX configuration
-[tool.uv]
-dev-dependencies = [
+# UV dependency groups (replaces deprecated tool.uv.dev-dependencies)
+[dependency-groups]
+dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
 ]
-
-# Allow running as MCP server via uvx
-[tool.uv.scripts]
-mcp = "llm_council.mcp_server:main"
