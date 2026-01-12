@@ -65,6 +65,10 @@ async def list_tools():
                         "description": "Number of personas (default: 3)",
                         "default": 3
                     },
+                    "personas_file": {
+                        "type": "string",
+                        "description": "Path to YAML/JSON file with persona definitions. Overrides 'personas' count if provided."
+                    },
                     "max_rounds": {
                         "type": "integer",
                         "description": "Maximum discussion rounds (default: 3)",
@@ -241,6 +245,7 @@ async def run_council_discussion(args: dict) -> list[TextContent]:
     objective = args.get("objective")
     context = args.get("context")
     num_personas = args.get("personas", 3)
+    personas_file = args.get("personas_file")
     max_rounds = args.get("max_rounds", 3)
     consensus_type_str = args.get("consensus_type", "majority")
 
@@ -268,9 +273,17 @@ async def run_council_discussion(args: dict) -> list[TextContent]:
             api_key=api_key,
         )
 
-        # Get personas
+        # Get personas - file takes precedence over count
         persona_manager = PersonaManager(provider=provider)
-        personas = persona_manager.get_default_personas(num_personas)
+        if personas_file:
+            try:
+                personas = persona_manager.load_personas(personas_file)
+            except FileNotFoundError:
+                return [TextContent(type="text", text=f"Error: Personas file not found: {personas_file}")]
+            except Exception as e:
+                return [TextContent(type="text", text=f"Error loading personas file: {str(e)}")]
+        else:
+            personas = persona_manager.get_default_personas(num_personas)
 
         # Create engine
         engine = CouncilEngine(

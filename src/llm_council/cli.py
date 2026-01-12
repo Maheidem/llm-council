@@ -71,6 +71,11 @@ def main():
     help="Auto-generate personas based on topic"
 )
 @click.option(
+    "--personas-file", "-pf",
+    type=click.Path(exists=True),
+    help="Load personas from YAML/JSON file (overrides --personas count)"
+)
+@click.option(
     "--consensus-type",
     type=click.Choice([c.value for c in ConsensusType]),
     default="majority",
@@ -99,6 +104,7 @@ def discuss(
     preset: Optional[str],
     personas: int,
     auto_personas: bool,
+    personas_file: Optional[str],
     consensus_type: str,
     max_rounds: int,
     output: str,
@@ -139,7 +145,16 @@ def discuss(
     # Create persona manager and get personas
     persona_manager = PersonaManager(provider=provider if auto_personas else None)
 
-    if auto_personas:
+    if personas_file:
+        # Load from file (highest priority)
+        if not quiet:
+            console.print(f"[dim]Loading personas from {personas_file}...[/dim]")
+        try:
+            persona_list = persona_manager.load_personas(personas_file)
+        except Exception as e:
+            console.print(f"[red]Failed to load personas: {e}[/red]")
+            sys.exit(1)
+    elif auto_personas:
         if not quiet:
             console.print("[dim]Generating personas for topic...[/dim]")
         persona_list = persona_manager.generate_personas_for_topic(topic, personas)

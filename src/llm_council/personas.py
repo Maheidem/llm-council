@@ -108,31 +108,32 @@ class PersonaManager:
         gen_provider = self.generation_provider or self.provider
         if not gen_provider:
             # Fall back to defaults if no provider
-            return self.get_default_personas(count)
-
-        user_prompt = f"""Create {count} diverse personas for discussing this topic:
+            personas = self.get_default_personas(count)
+        else:
+            user_prompt = f"""Create {count} diverse personas for discussing this topic:
 
 Topic: {topic}
 
 Remember: Output ONLY the Python dictionary list, no other text."""
 
-        try:
-            response = gen_provider.complete(self.generation_prompt, user_prompt)
-            # Parse the response
-            personas = self._parse_persona_response(response, count)
+            try:
+                response = gen_provider.complete(self.generation_prompt, user_prompt)
+                # Parse the response
+                personas = self._parse_persona_response(response, count)
 
-            # Apply provider configs if specified
-            if provider_configs:
-                personas = self._apply_provider_configs(personas, provider_configs)
+                # Apply provider configs if specified
+                if provider_configs:
+                    personas = self._apply_provider_configs(personas, provider_configs)
 
-            # Save if requested
-            if save_to:
-                self.save_personas(personas, save_to)
+            except Exception as e:
+                print(f"Failed to generate personas: {e}")
+                personas = self.get_default_personas(count)
 
-            return personas
-        except Exception as e:
-            print(f"Failed to generate personas: {e}")
-            return self.get_default_personas(count)
+        # Save if requested - always save, even for fallback personas
+        if save_to:
+            self.save_personas(personas, save_to)
+
+        return personas
 
     def _apply_provider_configs(
         self,
