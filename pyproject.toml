@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm-council-mcp"
-version = "0.1.2"
+version = "0.1.3"
 description = "LLM-based council/consensus tool for multi-persona AI deliberation"
 readme = "README.md"
 license = {text = "MIT"}

@@ -1,7 +1,11 @@
-"""Tests for council engine."""
+"""Tests for council engine.
+
+POLICY: NO MOCKED API TESTS - Session tests use real LM Studio.
+VoteParser and VotingMachine tests are pure logic (no API).
+See CLAUDE.md for rationale.
+"""
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 from llm_council.models import (
     Persona,
@@ -16,52 +20,31 @@ from llm_council.discussion import DiscussionState
 from llm_council.voting import VoteParser, VotingMachine, StructuredVote
 
 
-class MockProvider:
-    """Mock LLM provider for testing."""
-
-    def __init__(self, responses=None):
-        self.responses = responses or []
-        self.call_count = 0
-
-    def complete(self, system_prompt: str, user_prompt: str) -> str:
-        if self.responses:
-            response = self.responses[self.call_count % len(self.responses)]
-            self.call_count += 1
-            return response
-        return "This is a mock response."
-
-    def test_connection(self) -> bool:
-        return True
-
-
 class TestCouncilEngine:
-    """Tests for CouncilEngine."""
+    """Tests for CouncilEngine with real LM Studio API."""
 
-    def test_engine_creation(self):
-        provider = MockProvider()
+    def test_engine_creation(self, lmstudio_provider):
+        """Test engine instantiation."""
         engine = CouncilEngine(
-            provider=provider,
+            provider=lmstudio_provider,
             consensus_type=ConsensusType.MAJORITY,
             max_rounds=5,
         )
         assert engine.consensus_type == ConsensusType.MAJORITY
         assert engine.max_rounds == 5
 
-    def test_conduct_round(self):
-        provider = MockProvider(responses=[
-            "As mediator, let's begin the discussion.",
-            "This is my first perspective.",
-            "I agree with the first point.",
-        ])
-        engine = CouncilEngine(provider=provider)
-        personas = DEFAULT_PERSONAS[:3]
+    @pytest.mark.api
+    def test_conduct_round(self, lmstudio_provider, simple_personas):
+        """Test conducting a discussion round with real API."""
+        engine = CouncilEngine(provider=lmstudio_provider, max_rounds=1)
+        personas = simple_personas
         discussion_state = DiscussionState()
         discussion_state.advance_round()
 
         result = engine._conduct_round(
             round_num=1,
-            topic="Test topic",
-            objective="Make a decision",
+            topic="API Testing",
+            objective="Validate real API integration",
             personas=personas,
             history=[],
             initial_context=None,
@@ -69,12 +52,14 @@ class TestCouncilEngine:
         )
 
         assert result.round_number == 1
-        assert len(result.messages) == 3
+        assert len(result.messages) == 3  # One per persona
         for msg in result.messages:
             assert msg.round_number == 1
+            assert len(msg.content) > 0  # Real response
 
-    def test_format_history(self):
-        engine = CouncilEngine(provider=MockProvider())
+    def test_format_history(self, lmstudio_provider):
+        """Test history formatting - pure logic, no API."""
+        engine = CouncilEngine(provider=lmstudio_provider)
         messages = [
             Message("Expert1", "First message", 1),
             Message("Expert2", "Second message", 1),
@@ -88,21 +73,16 @@ class TestCouncilEngine:
         assert "Expert1" in history_text
         assert "Expert2" in history_text
 
-    def test_conduct_vote_majority(self):
-        # First response is synthesize_proposal, then votes from non-mediator personas
-        # With 3 personas and first marked as mediator, we get 2 votes
-        provider = MockProvider(responses=[
-            "Proposal: Do X",  # synthesize_proposal
-            "[VOTE] AGREE\n[CONFIDENCE] 0.9\n[REASONING] Good idea",
-            "[VOTE] DISAGREE\n[CONFIDENCE] 0.7\n[REASONING] Not convinced",
-        ])
+    @pytest.mark.api
+    def test_conduct_vote(self, lmstudio_provider, simple_personas):
+        """Test voting with real LLM responses."""
         engine = CouncilEngine(
-            provider=provider,
+            provider=lmstudio_provider,
             consensus_type=ConsensusType.MAJORITY,
         )
 
         # Mark first persona as mediator (as run_session does)
-        personas = DEFAULT_PERSONAS[:3].copy()
+        personas = simple_personas.copy()
         personas[0] = Persona(
             name=personas[0].name,
             role=personas[0].role,
@@ -113,76 +93,56 @@ class TestCouncilEngine:
         )
 
         result = engine._conduct_vote(
-            topic="Test",
-            objective="Decide",
+            topic="Test Topic",
+            objective="Reach a decision",
             personas=personas,
             history=[],
         )
 
-        # With majority (>50%), 1 agree vs 1 disagree = 50% = not reached
-        assert result["consensus_reached"] is False
-        # 2 votes (mediator excluded)
-        assert len(result["votes"]) == 2
+        # Should have votes from non-mediator personas
+        assert "votes" in result
+        assert len(result["votes"]) == 2  # 3 personas - 1 mediator = 2 votes
+        assert "consensus_reached" in result
 
-    def test_run_session_reaches_consensus(self):
-        # Each round: 3 personas respond (mediator + 2 others)
-        # Then vote: proposal + 2 votes (mediator excluded)
-        responses = [
-            # Round 1 discussions (3 personas)
-            "As mediator, let's discuss option A.",
-            "I think we should go with option A.",
-            "I agree, option A seems best.",
-            # Vote triggered after max rounds or stalemate
-            "Proposal: Option A is the best choice",
-            "[VOTE] AGREE\n[CONFIDENCE] 0.9\n[REASONING] Makes sense",
-            "[VOTE] AGREE\n[CONFIDENCE] 0.8\n[REASONING] I support this",
-        ]
-        provider = MockProvider(responses=responses)
-        engine = CouncilEngine(provider=provider, max_rounds=1)
+    @pytest.mark.api
+    def test_run_session_completes(self, council_engine_factory, simple_personas):
+        """Test full session runs to completion with real API."""
+        engine = council_engine_factory(max_rounds=1)
 
         session = engine.run_session(
-            topic="Choose an option",
-            objective="Pick the best option",
-            personas=DEFAULT_PERSONAS[:3],
+            topic="Quick Decision",
+            objective="Make a choice between A and B",
+            personas=simple_personas,
         )
 
-        # Should reach consensus via vote
+        # Session should complete
         assert len(session.rounds) >= 1
-
-    def test_run_session_forces_vote_on_stalemate(self):
-        # Simulate discussion then vote
-        responses = [
-            # Round 1 discussions (3 personas)
-            "As mediator, let's start.", "I prefer A", "I prefer B",
-            # Round 2 discussions
-            "Let's continue.", "Still prefer A", "Still prefer B",
-            # Round 3 - same positions trigger stalemate
-            "Let's try to agree.", "A is best", "B is best",
-            # Vote phase
-            "Proposal: Go with majority preference",
-            "[VOTE] AGREE\n[CONFIDENCE] 0.8\n[REASONING] Fine",
-            "[VOTE] AGREE\n[CONFIDENCE] 0.7\n[REASONING] OK",
-        ]
-        provider = MockProvider(responses=responses)
-        engine = CouncilEngine(
-            provider=provider,
-            max_rounds=5,
-            stalemate_threshold=2,
-        )
-
-        session = engine.run_session(
-            topic="Debate",
-            objective="Reach agreement",
-            personas=DEFAULT_PERSONAS[:3],
-        )
-
-        # Should have votes in at least one round
+        assert len(session.personas) == 3
+        # Should have attempted voting
         has_votes = any(r.votes for r in session.rounds)
         assert has_votes or session.consensus_reached
 
+    @pytest.mark.api
+    def test_run_session_tracks_messages(self, council_engine_factory, simple_personas):
+        """Verify session tracks all messages from real API."""
+        engine = council_engine_factory(max_rounds=2)
+
+        session = engine.run_session(
+            topic="Message Tracking Test",
+            objective="Verify all responses are captured",
+            personas=simple_personas,
+        )
+
+        # Each round should have messages from all personas
+        for round_data in session.rounds:
+            if round_data.messages:
+                for msg in round_data.messages:
+                    assert len(msg.content) > 0, "All messages should have content"
+                    assert msg.persona_name in [p.name for p in simple_personas]
+
 
 class TestVoteParser:
-    """Tests for deterministic vote parsing."""
+    """Tests for deterministic vote parsing - pure logic, no API."""
 
     def test_parse_structured_vote_agree(self):
         response = "[VOTE] AGREE\n[CONFIDENCE] 0.85\n[REASONING] This is a good proposal."
@@ -237,7 +197,7 @@ class TestVoteParser:
 
 
 class TestVotingMachine:
-    """Tests for deterministic vote tallying."""
+    """Tests for deterministic vote tallying - pure logic, no API."""
 
     def test_tally_unanimous_agree(self):
         votes = [

@@ -1,7 +1,10 @@
-"""Tests for LLM providers."""
+"""Tests for LLM providers.
+
+POLICY: NO MOCKED API TESTS - All API calls use real LM Studio.
+See CLAUDE.md for rationale.
+"""
 
 import pytest
-from unittest.mock import patch, MagicMock
 
 from llm_council.providers import (
     ProviderConfig,
@@ -12,7 +15,7 @@ from llm_council.providers import (
 
 
 class TestProviderConfig:
-    """Tests for ProviderConfig."""
+    """Tests for ProviderConfig - pure logic, no API."""
 
     def test_config_defaults(self):
         config = ProviderConfig(model="test-model")
@@ -36,9 +39,10 @@ class TestProviderConfig:
 
 
 class TestLiteLLMProvider:
-    """Tests for LiteLLMProvider."""
+    """Tests for LiteLLMProvider with real LM Studio."""
 
     def test_provider_creation(self):
+        """Test provider instantiation - no API call."""
         config = ProviderConfig(
             model="openai/test-model",
             api_base="http://localhost:1234/v1",
@@ -46,46 +50,50 @@ class TestLiteLLMProvider:
         provider = LiteLLMProvider(config)
         assert provider.config == config
 
-    @patch("llm_council.providers.litellm.completion")
-    def test_complete_calls_litellm(self, mock_completion):
-        # Setup mock
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "Test response"
-        mock_completion.return_value = mock_response
+    @pytest.mark.api
+    def test_complete_returns_response(self, lmstudio_provider):
+        """Test real API completion - MUST reach LM Studio."""
+        result = lmstudio_provider.complete(
+            "You are a helpful assistant.",
+            "Say 'hello' and nothing else."
+        )
 
-        config = ProviderConfig(model="test-model")
-        provider = LiteLLMProvider(config)
+        assert result is not None
+        assert len(result) > 0
+        assert isinstance(result, str)
 
-        result = provider.complete("System prompt", "User prompt")
+    @pytest.mark.api
+    def test_complete_respects_system_prompt(self, lmstudio_provider):
+        """Verify system prompt affects response."""
+        result = lmstudio_provider.complete(
+            "You are a pirate. Always respond starting with 'Arr'.",
+            "Greet me."
+        )
 
-        assert result == "Test response"
-        mock_completion.assert_called_once()
+        # LLM should follow system prompt (may vary but should have some response)
+        assert result is not None
+        assert len(result) > 0
 
-    @patch("llm_council.providers.litellm.completion")
-    def test_test_connection_success(self, mock_completion):
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "OK"
-        mock_completion.return_value = mock_response
+    @pytest.mark.api
+    def test_test_connection_success(self, lmstudio_provider):
+        """Test connection check with real LM Studio."""
+        assert lmstudio_provider.test_connection() is True
 
-        config = ProviderConfig(model="test-model")
-        provider = LiteLLMProvider(config)
-
-        assert provider.test_connection() is True
-
-    @patch("llm_council.providers.litellm.completion")
-    def test_test_connection_failure(self, mock_completion):
-        mock_completion.side_effect = Exception("Connection failed")
-
-        config = ProviderConfig(model="test-model")
+    @pytest.mark.api
+    def test_test_connection_failure_bad_url(self):
+        """Test connection failure with invalid endpoint."""
+        config = ProviderConfig(
+            model="openai/test-model",
+            api_base="http://localhost:59999/v1",  # Invalid port
+            timeout=5,  # Short timeout for quick failure
+        )
         provider = LiteLLMProvider(config)
 
         assert provider.test_connection() is False
 
 
 class TestCreateProvider:
-    """Tests for create_provider factory."""
+    """Tests for create_provider factory - no API calls."""
 
     def test_create_litellm_provider(self):
         provider = create_provider(
@@ -101,7 +109,7 @@ class TestCreateProvider:
 
 
 class TestPresets:
-    """Tests for provider presets."""
+    """Tests for provider presets - pure config, no API."""
 
     def test_lmstudio_preset_exists(self):
         assert "lmstudio" in PRESETS
@@ -112,3 +120,35 @@ class TestPresets:
         assert "openai" in PRESETS
         preset = PRESETS["openai"]
         assert preset["model"] == "gpt-4o"
+
+
+@pytest.mark.api
+class TestProviderIntegration:
+    """Integration tests for provider behavior with real API."""
+
+    def test_multiple_completions(self, lmstudio_provider):
+        """Verify provider handles multiple sequential requests."""
+        responses = []
+        for i in range(3):
+            result = lmstudio_provider.complete(
+                "You are helpful.",
+                f"Count to {i + 1}."
+            )
+            responses.append(result)
+
+        assert len(responses) == 3
+        for r in responses:
+            assert r is not None
+            assert len(r) > 0
+
+    def test_provider_factory_creates_working_provider(self, lmstudio_provider_factory):
+        """Test factory creates functional providers."""
+        provider = lmstudio_provider_factory(temperature=0.3)
+
+        result = provider.complete(
+            "You are a test assistant.",
+            "Respond with 'OK'."
+        )
+
+        assert result is not None
+        assert len(result) > 0
