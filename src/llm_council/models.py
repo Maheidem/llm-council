@@ -30,12 +30,19 @@ class PersonaProviderConfig:
     provider: Optional[str] = None  # Named provider reference
     api_base: Optional[str] = None
     api_key: Optional[str] = None
+    # Sampling
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     top_k: Optional[int] = None
     max_tokens: Optional[int] = None
-    context_size: Optional[int] = None
-    response_size: Optional[int] = None
+    # Repetition control
+    frequency_penalty: Optional[float] = None
+    presence_penalty: Optional[float] = None
+    repeat_penalty: Optional[float] = None  # LM Studio extension
+    # Control
+    stop: Optional[list[str]] = None
+    seed: Optional[int] = None
+    timeout: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary, excluding None values."""
@@ -48,8 +55,12 @@ class PersonaProviderConfig:
             "top_p": self.top_p,
             "top_k": self.top_k,
             "max_tokens": self.max_tokens,
-            "context_size": self.context_size,
-            "response_size": self.response_size,
+            "frequency_penalty": self.frequency_penalty,
+            "presence_penalty": self.presence_penalty,
+            "repeat_penalty": self.repeat_penalty,
+            "stop": self.stop,
+            "seed": self.seed,
+            "timeout": self.timeout,
         }.items() if v is not None}
 
     @classmethod
@@ -64,8 +75,12 @@ class PersonaProviderConfig:
             top_p=data.get("top_p"),
             top_k=data.get("top_k"),
             max_tokens=data.get("max_tokens"),
-            context_size=data.get("context_size"),
-            response_size=data.get("response_size"),
+            frequency_penalty=data.get("frequency_penalty"),
+            presence_penalty=data.get("presence_penalty"),
+            repeat_penalty=data.get("repeat_penalty"),
+            stop=data.get("stop"),
+            seed=data.get("seed"),
+            timeout=data.get("timeout"),
         )
 
 

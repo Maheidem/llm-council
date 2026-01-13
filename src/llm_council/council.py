@@ -92,12 +92,22 @@ class CouncilEngine:
         # If persona has explicit provider_config, create provider from it
         if persona.provider_config:
             cfg = persona.provider_config
+            # Get fallback values from default provider if available
+            default_config = self.provider.config if self.provider else None
             provider = create_provider(
-                model=cfg.model or (self.provider.config.model if self.provider else "openai/gpt-4o-mini"),
-                api_base=cfg.api_base or (self.provider.config.api_base if self.provider else None),
-                api_key=cfg.api_key or (self.provider.config.api_key if self.provider else None),
-                temperature=cfg.temperature or 0.7,
-                max_tokens=cfg.max_tokens or cfg.response_size or 1024,
+                model=cfg.model or (default_config.model if default_config else "openai/gpt-4o-mini"),
+                api_base=cfg.api_base or (default_config.api_base if default_config else None),
+                api_key=cfg.api_key or (default_config.api_key if default_config else None),
+                temperature=cfg.temperature if cfg.temperature is not None else (default_config.temperature if default_config else 0.7),
+                top_p=cfg.top_p if cfg.top_p is not None else (default_config.top_p if default_config else None),
+                top_k=cfg.top_k if cfg.top_k is not None else (default_config.top_k if default_config else None),
+                max_tokens=cfg.max_tokens or (default_config.max_tokens if default_config else 1024),
+                frequency_penalty=cfg.frequency_penalty if cfg.frequency_penalty is not None else (default_config.frequency_penalty if default_config else None),
+                presence_penalty=cfg.presence_penalty if cfg.presence_penalty is not None else (default_config.presence_penalty if default_config else None),
+                repeat_penalty=cfg.repeat_penalty if cfg.repeat_penalty is not None else (default_config.repeat_penalty if default_config else None),
+                stop=cfg.stop if cfg.stop is not None else (default_config.stop if default_config else None),
+                seed=cfg.seed if cfg.seed is not None else (default_config.seed if default_config else None),
+                timeout=cfg.timeout or (default_config.timeout if default_config else 120),
             )
             logger.debug(f"Created isolated provider for persona '{persona.name}' from config")
             return provider

@@ -68,12 +68,19 @@ class ProviderSettings(BaseModel):
     model: Optional[str] = None
     api_base: Optional[str] = None
     api_key: Optional[str] = None
+    provider: Optional[str] = None  # Reference to a named provider for inheritance
+    # Sampling
     temperature: Optional[float] = Field(None, ge=0.0, le=2.0)
     top_p: Optional[float] = Field(None, ge=0.0, le=1.0)
     top_k: Optional[int] = Field(None, ge=1)
     max_tokens: Optional[int] = Field(None, ge=1, le=100000)
-    context_size: Optional[int] = Field(None, ge=1)
-    response_size: Optional[int] = Field(None, ge=1)  # Alias for max_tokens
+    # Repetition control
+    frequency_penalty: Optional[float] = Field(None, ge=-2.0, le=2.0)
+    presence_penalty: Optional[float] = Field(None, ge=-2.0, le=2.0)
+    repeat_penalty: Optional[float] = Field(None, ge=0.0)  # LM Studio extension
+    # Control
+    stop: Optional[list[str]] = None
+    seed: Optional[int] = None
     timeout: Optional[int] = Field(None, ge=1)
 
     @field_validator('api_key')

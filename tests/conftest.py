@@ -16,7 +16,7 @@ from llm_council.providers import create_provider, LiteLLMProvider, ProviderConf
 LMSTUDIO_HOST = "localhost"
 LMSTUDIO_PORT = 1234
 LMSTUDIO_API_BASE = f"http://{LMSTUDIO_HOST}:{LMSTUDIO_PORT}/v1"
-LMSTUDIO_MODEL = "openai/qwen3-coder-30b"  # Any model loaded in LM Studio
+LMSTUDIO_MODEL = "openai/qwen/qwen3-coder-30b"  # Any model loaded in LM Studio
 
 
 def is_lmstudio_running() -> bool:
@@ -70,6 +70,23 @@ def lmstudio_available() -> bool:
     return is_lmstudio_running()
 
 
+@pytest.fixture
+def stub_provider() -> LiteLLMProvider:
+    """Create a provider instance without testing connection.
+
+    Use this for tests that need a provider object but don't make API calls.
+    For tests that actually call the API, use lmstudio_provider instead.
+    """
+    config = ProviderConfig(
+        model=LMSTUDIO_MODEL,
+        api_base=LMSTUDIO_API_BASE,
+        temperature=0.7,
+        max_tokens=1024,
+        timeout=120,
+    )
+    return LiteLLMProvider(config)
+
+
 @pytest.fixture(scope="session")
 def lmstudio_provider() -> Generator[LiteLLMProvider, None, None]:
     """Create a real LM Studio provider for API tests.
@@ -109,9 +126,15 @@ def lmstudio_provider() -> Generator[LiteLLMProvider, None, None]:
 def lmstudio_provider_factory():
     """Factory fixture to create fresh providers with custom config.
 
+    Supports all inference parameters:
+    - model, api_base, api_key: Connection settings
+    - temperature, top_p, top_k, max_tokens: Sampling parameters
+    - frequency_penalty, presence_penalty, repeat_penalty: Repetition control
+    - stop, seed, timeout: Control parameters
+
     Usage:
         def test_something(lmstudio_provider_factory):
-            provider = lmstudio_provider_factory(temperature=0.5)
+            provider = lmstudio_provider_factory(temperature=0.5, top_p=0.9)
     """
     import os
 
@@ -125,8 +148,19 @@ def lmstudio_provider_factory():
         config = ProviderConfig(
             model=kwargs.get("model", LMSTUDIO_MODEL),
             api_base=kwargs.get("api_base", LMSTUDIO_API_BASE),
+            api_key=kwargs.get("api_key"),
+            # Sampling parameters
             temperature=kwargs.get("temperature", 0.7),
+            top_p=kwargs.get("top_p"),
+            top_k=kwargs.get("top_k"),
             max_tokens=kwargs.get("max_tokens", 1024),
+            # Repetition control
+            frequency_penalty=kwargs.get("frequency_penalty"),
+            presence_penalty=kwargs.get("presence_penalty"),
+            repeat_penalty=kwargs.get("repeat_penalty"),
+            # Control parameters
+            stop=kwargs.get("stop"),
+            seed=kwargs.get("seed"),
             timeout=kwargs.get("timeout", 120),
         )
         return LiteLLMProvider(config)
