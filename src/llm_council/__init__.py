@@ -1,6 +1,6 @@
 """LLM Council - Multi-persona AI deliberation and consensus tool."""
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 
 from .models import (
     Persona,
